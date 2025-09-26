@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
+
 package reconciler
 
 import (
@@ -363,7 +381,7 @@ func (r *AntstorVolumeGroupReconcileHandler) syncVolumes(ctx *plugin.Context, vo
 				// ctx.Log.Error(err, "cannot find volume object, writing volumes may have error", "volName", item.Name)
 				// if vol is scheduled and vol is not found, create volume
 				if (item.Size > 0 && item.TargetNodeName != "") && errors.IsNotFound(err) {
-					newVol := newVolume(volGroup, item.VolId, item.Size, item.TargetNodeName)
+					newVol := newVolume(volGroup, item.VolId, item.Size, item.TargetNodeName, volGroup.Spec.IsThin)
 					errCreate := r.Client.Create(ctx.ReqCtx.Ctx, newVol)
 					if errCreate == nil || errors.IsAlreadyExists(errCreate) {
 						log.Info("successfully created volume", "vol", item.VolId)
@@ -437,7 +455,7 @@ func (r *AntstorVolumeGroupReconcileHandler) waitVolumesReady(ctx *plugin.Contex
 	return
 }
 
-func newVolume(volGroup *v1.AntstorVolumeGroup, volId v1.EntityIdentity, volSize int64, volTgtNode string) *v1.AntstorVolume {
+func newVolume(volGroup *v1.AntstorVolumeGroup, volId v1.EntityIdentity, volSize int64, volTgtNode string, isThin bool) *v1.AntstorVolume {
 	blockOwnerDel := true
 	labels := misc.CopyLabel(volGroup.Spec.DesiredVolumeSpec.Labels)
 	annos := misc.CopyLabel(volGroup.Spec.DesiredVolumeSpec.Annotations)
@@ -464,6 +482,7 @@ func newVolume(volGroup *v1.AntstorVolumeGroup, volId v1.EntityIdentity, volSize
 			Uuid:     volId.UUID,
 			Type:     v1.VolumeTypeFlexible,
 			SizeByte: uint64(volSize),
+			IsThin:   isThin,
 			// set required afifnity to the pool
 			PoolAffinity: &corev1.NodeAffinity{
 				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
