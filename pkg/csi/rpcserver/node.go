@@ -1,8 +1,27 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support Pod Eviction, nvme connect parameters configurable, volume mount options configurable, volume umount optimization, csi storage capacity tracking, Volume Health Monitoring
+
 package rpcserver
 
 import (
 	"fmt"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -80,10 +99,6 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		klog.Errorf("TargetPath %s maybe exist, %t , %+v", targetPath, hasTgtFile, err)
 	}
 
-	// 2. Update host node info of the volume; 这个请求是从 pod 所在node 发出，所以可以确保 host node 是正确的。
-	// 因为存在机头漂移的情况，所以 host node 需要更新。如果 缺少target服务，还需要在 controller 发起创建 SPDK target。
-	// TODO: update PV HostNode info
-
 	klog.Infof("Try to find volume status, id=%s", req.VolumeId)
 	pv, err = ns.cli.GetPvByID(req.VolumeId)
 	if err != nil {
@@ -98,6 +113,15 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 
 	klog.Infof("volume is ready, id=%s", req.VolumeId)
+
+	// 2. Update host node info of the volume; 这个请求是从 pod 所在node 发出，所以可以确保 host node 是正确的。
+	// 因为存在机头漂移的情况，所以 host node 需要更新。如果 缺少target服务，还需要在 controller 发起创建 SPDK target。
+	// TODO: update PV HostNode info
+	nodeID := ns.driver.GetInstanceId()
+	if nodeID != pv.GetHostNodeId() {
+		err = ns.cli.UpdatePvHostNode(req.VolumeId, nodeID)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("nodeid change from %s to %s", pv.GetHostNodeId(), nodeID))
+	}
 
 	// 判断是否 远程盘+ guest kernel 直连SPDK模式
 	/*
@@ -181,7 +205,7 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	// 3. if the volume is local and type is SpdkLVol, do the same as remote volume.
 	devicePath = pv.GetDevPath()
 	if !isLocalDisk || (!isLVM && pv.GetSpdkTarget() != nil) {
-		devicePath, err = connectSpdkTarget(pv.GetSpdkTarget())
+		devicePath, err = connectSpdkTarget(pv.GetSpdkTarget(), ns.driver.GetNvmeReconnectDelay(), ns.driver.GetNvmeCtrlLossTMO())
 		if err != nil {
 			klog.Error(err)
 			return nil, status.Error(codes.Internal, "cannot connect target to provide devicePath")
@@ -226,6 +250,9 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		if isClonedVol {
 			mountOpts = append(mountOpts, "nouuid")
 		}
+		if m := req.VolumeCapability.GetMount(); m != nil {
+			mountOpts = append(mountOpts, m.MountFlags...)
+		}
 
 		// split mounter.FormatAndMount to 2 methods, coz FormatAndMount does not have arguments for mkfs
 		if err = mkfs.SafeFormat(devicePath, fsType, mkfsAgs); err != nil {
@@ -262,6 +289,9 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 	var volumeId = req.GetVolumeId()
 	// get vol by id
 	pv, err := ns.cli.GetPvByID(volumeId)
+	if disErr := disconnectSpdkTarget(volumeId); disErr != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 	if err != nil {
 		if err == client.ErrorNotFoundResource {
 			klog.Infof("cannot find volume by id %s, %+v; consider NodeUnstage successful", volumeId, err)
@@ -318,25 +348,6 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		}
 	}
 
-	klog.Info("sleep 5s before disconnecting nvme")
-	time.Sleep(5 * time.Second)
-
-	// 2. Disconnect from target subsystem by NQN
-	// prepare nvme client
-	var isLVM = pv.IsLVM()
-	if !isLVM {
-		var nqn = pv.GetSpdkTarget().SubsysNQN
-		klog.Infof("volume %s is disconnecting remote nvme %s", volumeId, nqn)
-		nvmeCli := nvme.NewClientWithCmdPath(nvmeClientFilePath)
-		// disconnect must be idempotent; 如果nqn不存在， exit-code 还是0
-		out, err := nvmeCli.DisconnectTarget(nvme.DisconnectTargetRequest{
-			NQN: nqn,
-		})
-		if err != nil {
-			klog.Errorf("out %s err %+v", string(out), err)
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-	}
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
@@ -448,7 +459,7 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	} else {
 		// 获取 device path
 		var devPath string = pv.GetDevPath()
-		if !isLVM {
+		if !isLVM || !pv.IsLocal() {
 			devPath, err = getDevicePath(pv.GetSpdkTarget())
 			if err != nil {
 				return nil, status.Error(codes.Internal, err.Error())
@@ -523,8 +534,9 @@ func (ns *NodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 		// report topology to CSINode
 		AccessibleTopology: &csi.Topology{
 			Segments: map[string]string{
+				GetTopologyNodeKey(): nodeID,
 				// TODO: make key obnvmf-host configiurable
-				"custom.k8s.alipay.com/obnvmf-host": "true",
+				//"custom.k8s.alipay.com/obnvmf-host": "true",
 				// TODO: set node Label seperately
 				// "custom.k8s.alipay.com/nvme-tcp-version": nvme.NvmeTcpVersion.Version,
 			},
@@ -574,7 +586,7 @@ func (ns *NodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 
 	var devicePath string = pv.GetDevPath()
 	var isLVM = pv.IsLVM()
-	if !isLVM {
+	if !isLVM || !pv.IsLocal() {
 		devicePath, err = getDevicePath(pv.GetSpdkTarget())
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
@@ -621,10 +633,17 @@ func (ns *NodeServer) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVo
 	if len(path) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "path is not provided")
 	}
-
+	volCond := &csi.VolumeCondition{
+		Abnormal: false,
+		Message:  "status ok",
+	}
 	notMnt, err := mount.IsNotMountPoint(ns.mounter, path)
 	if err != nil {
-		return nil, status.Error(codes.NotFound, "failed to determine if path is a mount point. "+err.Error())
+		//return nil, status.Error(codes.NotFound, "failed to determine if path is a mount point. "+err.Error())
+		klog.Infof("vol %s, path %s IsNotMountPoint err:%v", volID, path, err)
+		volCond.Abnormal = true
+		volCond.Message = err.Error()
+		return &csi.NodeGetVolumeStatsResponse{Usage: []*csi.VolumeUsage{&csi.VolumeUsage{}}, VolumeCondition: volCond}, nil
 	}
 	if notMnt {
 		return nil, status.Error(codes.NotFound, "path is not a mount path")
@@ -632,7 +651,11 @@ func (ns *NodeServer) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVo
 
 	var sfs unix.Statfs_t
 	if err := unix.Statfs(path, &sfs); err != nil {
-		return nil, status.Errorf(codes.Internal, "statfs on %s failed: %v", path, err)
+		klog.Infof("vol %s, path %s Statfs err:%v", volID, path, err)
+		volCond.Abnormal = true
+		volCond.Message = err.Error()
+		return &csi.NodeGetVolumeStatsResponse{Usage: []*csi.VolumeUsage{&csi.VolumeUsage{}}, VolumeCondition: volCond}, nil
+		//return nil, status.Errorf(codes.Internal, "statfs on %s failed: %v", path, err)
 	}
 
 	var usage []*csi.VolumeUsage
@@ -648,13 +671,43 @@ func (ns *NodeServer) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVo
 		Used:      int64(sfs.Files - sfs.Ffree),
 		Available: int64(sfs.Ffree),
 	})
-	klog.Infof("vol %s, path %s usage: bytes %d/%d left %d, inodes %d/%d", volID, path,
+	//检查挂载目录是否正常
+	if err = validateDir(req.VolumePath); err != nil {
+		volCond.Abnormal = true
+		volCond.Message = err.Error()
+	}
+	klog.V(1).Infof("vol %s, path %s usage: bytes %d/%d left %d, inodes %d/%d", volID, path,
 		usage[0].Used, usage[0].Total, usage[0].Available,
 		usage[1].Used, usage[1].Total)
 
 	// TODO: get volume by id; call metric.SetFilesystemMetrics() to set fs metrics by (nodeID, pvcName, pvcNS)
 
-	return &csi.NodeGetVolumeStatsResponse{Usage: usage}, nil
+	return &csi.NodeGetVolumeStatsResponse{Usage: usage, VolumeCondition: volCond}, nil
+}
+
+func validateDir(dir string) error {
+	name := path.Join(dir, ".liteio.Validate.file")
+	// 检查文件是否存在
+	_, err := os.Stat(name)
+	if os.IsNotExist(err) {
+		// 文件不存在，创建空文件
+		file, err := os.Create(name)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+	} else if err != nil {
+		// 其他错误
+		return err
+	} else {
+		// 文件存在，更新访问时间和修改时间
+		now := time.Now()
+		err = os.Chtimes(name, now, now)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func getDevicePath(tgt *v1.SpdkTarget) (devicePath string, err error) {
@@ -675,7 +728,7 @@ func getDevicePath(tgt *v1.SpdkTarget) (devicePath string, err error) {
 	return
 }
 
-func connectSpdkTarget(tgt *v1.SpdkTarget) (devicePath string, err error) {
+func connectSpdkTarget(tgt *v1.SpdkTarget, reconnectDelay, ctrlLossTMO int) (devicePath string, err error) {
 	// remote disk
 	nvmeCli := nvme.NewClientWithCmdPath(nvmeClientFilePath)
 	// check if already connected
@@ -700,12 +753,19 @@ func connectSpdkTarget(tgt *v1.SpdkTarget) (devicePath string, err error) {
 		}
 	}
 
+	if reconnectDelay == 0 {
+		reconnectDelay = nvme.DefaultReconnectDelaySec
+	}
+	if ctrlLossTMO == 0 {
+		ctrlLossTMO = nvme.DefaultCtrlLossTMO
+	}
+
 	// if devicePath is not found, do connect
 	if devicePath == "" {
 		var transType string
 		var opts = nvme.ConnectTargetOpts{
-			ReconnectDelaySec: 2,
-			CtrlLossTMO:       10,
+			ReconnectDelaySec: reconnectDelay,
+			CtrlLossTMO:       ctrlLossTMO,
 		}
 
 		switch tgt.TransType {
@@ -737,6 +797,24 @@ func connectSpdkTarget(tgt *v1.SpdkTarget) (devicePath string, err error) {
 	}
 
 	return
+}
+
+func disconnectSpdkTarget(volId string) error {
+	//判断是否为spdk远程盘
+	nvmeCli := nvme.NewClientWithCmdPath(nvmeClientFilePath)
+	if lists, err := nvmeCli.ListSubsystems(); err == nil {
+		klog.V(1).Infof("ListSubsystems:%+v", lists)
+		for _, subsys := range lists.Subsystems {
+			if strings.HasSuffix(subsys.NQN, volId) {
+				if out, err := nvmeCli.DisconnectTarget(nvme.DisconnectTargetRequest{NQN: subsys.NQN}); err != nil {
+					klog.Errorf("out %s err %+v", string(out), err)
+				}
+			}
+		}
+	} else {
+		klog.Errorf("ListSubsystems err %+v", err)
+	}
+	return nil
 }
 
 func getBlockDeviceSize(devicePath string) (int64, error) {

@@ -1,3 +1,22 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support csi storage capacity tracking and lvm thin volume
+
+
 package rpcserver
 
 import (
@@ -51,6 +70,9 @@ const (
 	// CSI CreateVolumeRequest Context key, specifing mkfs arguments
 	mkfsParamsKey = "obnvmf/mkfsParams"
 
+	// CSI CreateVolumeRequest Context key, thin provision
+	thinProvisionKey = "thinProvision"
+
 	// CSI CreateVolumeRequest Context key for DataControl and VoluemGroup
 	// value is Volume or VolumeGroup
 	pvTypeKey             = "obnvmf/pv-type"
@@ -96,6 +118,7 @@ type ControllerServer struct {
 	locks   *misc.ResourceLocks
 	kubeCli kubernetes.Interface
 	// detachLimiter common.RetryLimiter
+	caps *storagePoolCaps
 }
 
 // NewControllerServer
@@ -106,6 +129,7 @@ func NewControllerServer(driver *driver.CSIDriver, cli client.AntstorClientIface
 		cli:     cli,
 		locks:   misc.NewResourceLocks(),
 		kubeCli: kubeCli,
+		caps:    newStoragePoolCaps(cli),
 	}
 }
 
@@ -157,6 +181,8 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	opt.Size = req.GetCapacityRange().RequiredBytes
 	opt.PvName = req.Name
 	opt.PvType = req.Parameters[pvTypeKey]
+
+	opt.IsThin, _ = strconv.ParseBool(req.Parameters[thinProvisionKey])
 
 	volLabels[v1.FsTypeLabelKey] = fsType
 	volLabels[v1.VolumePVNameLabelKey] = req.Name
@@ -404,6 +430,9 @@ func (cs *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	freeBytes := sp.GetVgFreeBytes()
+	if sp.IsThin {
+		freeBytes = sp.GetVgVirtualFreeBytes()
+	}
 	if freeBytes < capRange.RequiredBytes-volSize {
 		err = fmt.Errorf("storagepool %s has no enough free space to expand the volume, free space %d, request size %d, original size %d", tgtNodeId, freeBytes, capRange.RequiredBytes, volSize)
 		klog.Error(err)
@@ -430,7 +459,38 @@ func (cs *ControllerServer) ListVolumes(ctx context.Context, req *csi.ListVolume
 }
 
 func (cs *ControllerServer) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	topology := req.GetAccessibleTopology()
+	capabilities := req.GetVolumeCapabilities()
+	if capabilities != nil {
+		klog.Infof("capability argument is not nil, but liteio ignores it")
+	}
+	isThin, _ := strconv.ParseBool(req.Parameters[thinProvisionKey])
+	var capacity int64
+	switch topology {
+	case nil:
+		capacity = cs.caps.getAll(isThin)
+	default:
+		v, ok := topology.Segments[GetTopologyNodeKey()]
+		if !ok {
+			klog.Errorf("%s is not found in req.AccessibleTopology", GetTopologyNodeKey())
+			return &csi.GetCapacityResponse{AvailableCapacity: 0}, nil
+		}
+		info, err := cs.caps.get(v)
+		if err != nil {
+			return nil, status.Error(codes.Unavailable, err.Error())
+		}
+		if req.Parameters[v1.StorageClassParamPositionAdvice] == string(v1.MustLocal) {
+			if isThin == info.isThin {
+				capacity = info.freeSpace
+			}
+		} else {
+			capacity = info.totalSpace
+		}
+	}
+
+	return &csi.GetCapacityResponse{
+		AvailableCapacity: capacity,
+	}, nil
 }
 
 // CreateSnapshot allows the CO to create a snapshot.
@@ -442,7 +502,7 @@ func (cs *ControllerServer) GetCapacity(ctx context.Context, req *csi.GetCapacit
 // Source volume id is REQUIRED
 // Snapshot name is REQUIRED
 func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshotRequest) (*csi.
-	CreateSnapshotResponse, error) {
+CreateSnapshotResponse, error) {
 
 	klog.Infof("CreateSnapshot Req=%s", req.String())
 
