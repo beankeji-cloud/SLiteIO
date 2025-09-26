@@ -1,7 +1,26 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
+
 package engine
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	v1 "lite.io/liteio/pkg/api/volume.antstor.alipay.com/v1"
@@ -21,13 +40,19 @@ var (
 )
 
 type LvmPoolEngine struct {
-	VgName  string
-	VgCache v1.KernelLVM
+	VgName             string
+	IsThin             bool
+	ThinPoolName       string
+	OverprovisionRatio float64
+	VgCache            v1.KernelLVM
 }
 
-func NewLvmPoolEngine(vgName string) (pe *LvmPoolEngine) {
+func NewLvmPoolEngine(vgName string, isThin bool, overprovisionRatio float64, thinPoolName string) (pe *LvmPoolEngine) {
 	pe = &LvmPoolEngine{
-		VgName: vgName,
+		VgName:             vgName,
+		IsThin:             isThin,
+		OverprovisionRatio: overprovisionRatio,
+		ThinPoolName:       thinPoolName,
 	}
 
 	return
@@ -43,7 +68,7 @@ func (pe *LvmPoolEngine) PoolInfo(vgName string) (info StaticInfo, err error) {
 	return
 }
 
-func (pe *LvmPoolEngine) TotalAndFreeSize() (total, free uint64, err error) {
+func (pe *LvmPoolEngine) TotalAndFreeSize() (total, free, virtualFree uint64, dataPct, metadataPct float64, err error) {
 	var vgName = pe.VgName
 	vgList, err := lvm.LvmUtil.ListVG()
 	if err != nil {
@@ -55,6 +80,32 @@ func (pe *LvmPoolEngine) TotalAndFreeSize() (total, free uint64, err error) {
 		if item.Name == vgName {
 			total = item.TotalByte
 			free = item.FreeByte
+			virtualFree = free
+			if pe.IsThin {
+				var volExists bool
+				var target lvm.LV
+				volExists, _, target, err = isVolumeExistent(vgName, pe.ThinPoolName)
+				if volExists {
+					total = target.SizeByte
+					usedRate, _ := strconv.ParseFloat(target.DataPercent, 64)
+					usedRate /= 100.0
+					dataPct = usedRate
+					metadataPct, _ = strconv.ParseFloat(target.MetaDataPercent, 64)
+					metadataPct /= 100.0
+					free = uint64(float64(total) * (1.0 - usedRate))
+					lvs, _ := lvm.LvmUtil.ListLVInVG(pe.VgName)
+					var used uint64
+					for _, lv := range lvs {
+						if lv.LvLayout == "thin,sparse" {
+							used += lv.SizeByte
+						}
+					}
+					virtualFree = uint64(float64(total)*pe.OverprovisionRatio - float64(used))
+					if virtualFree < 0 {
+						virtualFree = 0
+					}
+				}
+			}
 			return
 		}
 	}
@@ -163,7 +214,14 @@ func (pe *LvmPoolEngine) RestoreSnapshot(snapshotName string) (err error) {
 }
 
 func (pe *LvmPoolEngine) ExpandVolume(req ExpandVolumeRequest) (err error) {
-	klog.Info("expanding Logic Volume of LVM", req)
+	vol, err := pe.GetVolume(req.VolName)
+	if err != nil {
+		return
+	}
+	klog.Infof("expanding Logic Volume of LVM, req:%v, allocsize:%d", req, vol.LvmLV.SizeByte)
+	if vol.LvmLV.SizeByte >= req.TargetSize {
+		return
+	}
 	err = lvm.LvmUtil.ExpandVolume(int64(req.TargetSize-req.OriginSize), fmt.Sprintf("%s/%s", pe.VgName, req.VolName))
 	if err != nil {
 		return
@@ -193,6 +251,9 @@ func (pe *LvmPoolEngine) allocate(name string, size uint64, lvLayout v1.LVLayout
 			lvLayout = v1.LVLayoutStriped
 		}
 	}
+	if pe.IsThin {
+		lvLayout = v1.LVLayoutThinPool
+	}
 
 	if !volExists {
 		// If there is any linear volume, create linear LV.
@@ -219,6 +280,11 @@ func (pe *LvmPoolEngine) allocate(name string, size uint64, lvLayout v1.LVLayout
 			_, err = lvm.LvmUtil.CreateStripeLV(vgName, name, size)
 			if err != nil {
 				klog.Errorf("failed to create stripe LV %s, err %+v.", name, err)
+				return
+			}
+		case v1.LVLayoutThinPool:
+			if _, err = lvm.LvmUtil.CreateThinLV(vgName, pe.ThinPoolName, name, size); err != nil {
+				klog.Errorf("failed to create thin LV %s, err %+v.", name, err)
 				return
 			}
 		default:
