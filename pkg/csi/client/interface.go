@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume, csi storage capacity tracking and Pod Eviction
+
 package client
 
 import (
@@ -33,6 +51,8 @@ type PVCreateOption struct {
 	// volume posision
 	PositionAdvice string
 
+	IsThin bool // vol thin provision
+
 	PvType string
 	// for data control
 	RaidLevel  string
@@ -58,7 +78,7 @@ type PvBaseIface interface {
 
 type PvAdvancedIface interface {
 	// UpdatePvHostNode update the host node info of the PV
-	// UpdatePvHostNode(volID, hostNodeID string) (err error)
+	UpdatePvHostNode(volID, hostNodeID string) (err error)
 
 	SetNodePublishParameters(req SetNodePublishParamRequest) (err error)
 }
@@ -77,6 +97,9 @@ type SnapshotIface interface {
 
 type StoragePoolIface interface {
 	GetStoragePoolByName(ns, name string) (sp *StoragePool, err error)
+	ListStoragePool(ns string) (sp *v1.StoragePoolList, err error)
+	GetStoragePoolCapacity(ns, name string, isThin bool) (cap int64, err error)
+	GetAllStoragePoolCapacity(ns string, isThin bool) (cap int64, err error)
 }
 
 type AntstorClientIface interface {
@@ -101,6 +124,26 @@ func (p *PV) GetTargetNodeId() string {
 		return p.Volume.Spec.TargetNodeId
 	case PvTypeVolumeGroup:
 		return p.DataContrl.Spec.TargetNodeId
+	}
+	return ""
+}
+
+func (p *PV) GetHostNodeId() string {
+	switch p.Type {
+	case PvTypeVolume:
+		return p.Volume.Spec.HostNode.ID
+	case PvTypeVolumeGroup:
+		return p.DataContrl.Spec.HostNode.ID
+	}
+	return ""
+}
+
+func (p *PV) SetHostNode() string {
+	switch p.Type {
+	case PvTypeVolume:
+		return p.Volume.Spec.HostNode.ID
+	case PvTypeVolumeGroup:
+		return p.DataContrl.Spec.HostNode.ID
 	}
 	return ""
 }

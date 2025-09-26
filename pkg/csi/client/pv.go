@@ -1,18 +1,38 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume and Pod Eviction
+
 package client
 
 import (
 	"context"
 	"fmt"
+	"lite.io/liteio/pkg/agent/config"
+	"lite.io/liteio/pkg/controller/kubeutil"
 	"strconv"
 	"strings"
 
-	v1 "lite.io/liteio/pkg/api/volume.antstor.alipay.com/v1"
-	"lite.io/liteio/pkg/util/misc"
 	uuid "github.com/satori/go.uuid"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	v1 "lite.io/liteio/pkg/api/volume.antstor.alipay.com/v1"
+	"lite.io/liteio/pkg/util/misc"
 )
 
 const (
@@ -84,6 +104,7 @@ func (cm *KubeAPIClient) CreatePV(opt PVCreateOption) (volId string, err error) 
 				SizeByte:       uint64(opt.Size),
 				HostNode:       &opt.HostNode,
 				PositionAdvice: v1.VolumePosition(opt.PositionAdvice),
+				IsThin:         opt.IsThin,
 			},
 			Status: v1.AntstorVolumeStatus{
 				Status: v1.VolumeStatusCreating,
@@ -125,6 +146,7 @@ func (cm *KubeAPIClient) CreatePV(opt PVCreateOption) (volId string, err error) 
 				Spec: v1.AntstorVolumeGroupSpec{
 					Uuid:      uuid,
 					TotalSize: opt.Size,
+					IsThin:    opt.IsThin,
 					Stragety: v1.VolumeGroupStrategy{
 						Name:           v1.StragetyBestFit,
 						AllowEmptyNode: opt.AllowEmptyNode,
@@ -367,5 +389,38 @@ func (cm *KubeAPIClient) SetNodePublishParameters(req SetNodePublishParamRequest
 
 	err = fmt.Errorf("not supported pv type")
 
+	return
+}
+
+func (cm *KubeAPIClient) UpdatePvHostNode(volID, hostNodeID string) (err error) {
+	var pv PV
+	pv, err = cm.GetPvByID(volID)
+	if err != nil {
+		klog.Error(err)
+		return
+	}
+	if pv.GetHostNodeId() != hostNodeID {
+		klog.Infof("UpdatePvHostNode %s from %s to %s", volID, pv.GetHostNodeId(), hostNodeID)
+		cfg := config.NodeInfoKeys{}
+		config.SetNodeInfoDefaults(&cfg)
+		var hostnode v1.NodeInfo
+		hostnode, err = kubeutil.NewKubeNodeInfoGetter(cm.kubeCli).GetByNodeID(hostNodeID, kubeutil.NodeInfoOption(cfg))
+		if err != nil {
+			klog.Error(err)
+			return
+		}
+		hostnode.ID = hostNodeID
+		if hostnode.Labels != nil {
+			hostnode.Hostname = hostnode.Labels[kubeutil.K8SLabelKeyHostname]
+		}
+		switch pv.Type {
+		case PvTypeVolume:
+			pv.Volume.Spec.HostNode = &hostnode
+			_, err = cm.cli.VolumeV1().AntstorVolumes(pv.Volume.Namespace).Update(context.Background(), pv.Volume, metav1.UpdateOptions{})
+		case PvTypeVolumeGroup:
+			pv.DataContrl.Spec.HostNode = hostnode
+			_, err = cm.cli.VolumeV1().AntstorDataControls(pv.DataContrl.Namespace).Update(context.Background(), pv.DataContrl, metav1.UpdateOptions{})
+		}
+	}
 	return
 }

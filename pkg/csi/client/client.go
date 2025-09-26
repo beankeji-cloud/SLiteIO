@@ -1,16 +1,35 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume and csi storage capacity tracking
+
 package client
 
 import (
 	"context"
 	"fmt"
+	"k8s.io/client-go/kubernetes"
 
-	v1 "lite.io/liteio/pkg/api/volume.antstor.alipay.com/v1"
-	"lite.io/liteio/pkg/generated/clientset/versioned"
-	"lite.io/liteio/pkg/util"
 	uuid "github.com/satori/go.uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	rest "k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+	v1 "lite.io/liteio/pkg/api/volume.antstor.alipay.com/v1"
+	"lite.io/liteio/pkg/generated/clientset/versioned"
+	"lite.io/liteio/pkg/util"
 )
 
 var (
@@ -33,13 +52,19 @@ type SetNodePublishParamRequest struct {
 }
 
 type KubeAPIClient struct {
-	cli *versioned.Clientset
+	cli     *versioned.Clientset
+	kubeCli kubernetes.Interface
 }
 
 func NewKubeAPIClient(c *rest.Config) (mgr *KubeAPIClient, err error) {
 	cli := versioned.NewForConfigOrDie(c)
+	kubeClient, err := kubernetes.NewForConfig(c)
+	if err != nil {
+		klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
+	}
 	mgr = &KubeAPIClient{
-		cli: cli,
+		cli:     cli,
+		kubeCli: kubeClient,
 	}
 	return
 }
@@ -127,5 +152,42 @@ func (cm *KubeAPIClient) DeleteSnapshot(snapID string) (err error) {
 
 func (cm *KubeAPIClient) GetStoragePoolByName(ns, name string) (sp *StoragePool, err error) {
 	sp, err = cm.cli.VolumeV1().StoragePools(ns).Get(context.Background(), name, metav1.GetOptions{})
+	return
+}
+
+func (cm *KubeAPIClient) ListStoragePool(ns string) (sp *v1.StoragePoolList, err error) {
+	sp, err = cm.cli.VolumeV1().StoragePools(ns).List(context.Background(), metav1.ListOptions{})
+	return
+}
+
+func (cm *KubeAPIClient) GetStoragePoolCapacity(ns, name string, isThin bool) (cap int64, err error) {
+	sp, err := cm.cli.VolumeV1().StoragePools(ns).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		return 0, err
+	}
+	if isThin == sp.IsThin {
+		cap = sp.GetVgFreeBytes()
+		if sp.IsThin {
+			free := sp.GetVgVirtualFreeBytes()
+			if free < cap {
+				cap = free
+			}
+		}
+	} else {
+		return 0, fmt.Errorf("pool %s isThin %v != %v", name, sp.IsThin, isThin)
+	}
+	return
+}
+
+func (cm *KubeAPIClient) GetAllStoragePoolCapacity(ns string, isThin bool) (cap int64, err error) {
+	sps, err := cm.cli.VolumeV1().StoragePools(ns).List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return 0, err
+	}
+	for _, sp := range sps.Items {
+		if isThin == sp.IsThin {
+			cap += sp.GetVgFreeBytes()
+		}
+	}
 	return
 }
