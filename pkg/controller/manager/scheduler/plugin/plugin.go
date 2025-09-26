@@ -1,4 +1,4 @@
-package plugin
+﻿package plugin
 
 import (
 	"lite.io/liteio/pkg/controller/manager/config"

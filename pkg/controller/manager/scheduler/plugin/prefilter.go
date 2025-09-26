@@ -1,8 +1,26 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
 package plugin
 
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"lite.io/liteio/pkg/controller/manager/state"
@@ -19,6 +37,9 @@ type cycleData struct {
 	// mustLocalAntstorPVCs is a list of PVC belonging to Antstor
 	mustLocalAntstorPVCs []*corev1.PersistentVolumeClaim
 	otherAntstorPVCs     []*corev1.PersistentVolumeClaim
+
+	mustLocalThinProvision bool
+
 	// storageclass name => sc pointer
 	scMap map[string]*storagev1.StorageClass
 	// skipAntstorPlugin is true then the plugin logic is skipped
@@ -33,6 +54,7 @@ func (cd *cycleData) Clone() framework.StateData {
 	return &cycleData{
 		otherAntstorPVCs:     cd.otherAntstorPVCs,
 		mustLocalAntstorPVCs: cd.mustLocalAntstorPVCs,
+		mustLocalThinProvision: cd.mustLocalThinProvision,
 		scMap:                cd.scMap,
 	}
 }
@@ -85,6 +107,7 @@ func (asp *AntstorSchdulerPlugin) PreFilter(ctx context.Context, s *framework.Cy
 			if isAntstorStorageClass(sc) {
 				if isMustLocalStorageClass(sc) {
 					cycleData.mustLocalAntstorPVCs = append(cycleData.mustLocalAntstorPVCs, pvc)
+					cycleData.mustLocalThinProvision, _ = strconv.ParseBool(sc.Parameters["thinProvision"])
 				} else {
 					cycleData.otherAntstorPVCs = append(cycleData.otherAntstorPVCs, pvc)
 				}
