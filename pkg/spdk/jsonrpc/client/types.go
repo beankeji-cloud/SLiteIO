@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support mount  option: discard and fix aio  bdev expantion bug
+
 package client
 
 import (
@@ -58,6 +76,9 @@ type BdevAioCreateReq struct {
 	FileName string `json:"filename"`
 	// optional
 	BlockSize int `json:"block_size,omitempty"`
+
+	//optional Support unmap/writezeros by fallocate   用于支持文件系统挂载时的discard选项
+	Fallocate bool `json:"fallocate,omitempty"`
 }
 
 type NVMFCreateSubsystemReq struct {
@@ -74,6 +95,9 @@ type NVMFCreateSubsystemReq struct {
 	MaxNamespaces int    `json:"max_namespaces,omitempty"`
 	AllowAnyHost  bool   `json:"allow_any_host,omitempty"`
 	ANAReporting  bool   `json:"ana_reporting,omitempty"`
+
+	//optional Maximum discard size (Kib)
+	MaxDiscardSize int `json:"max_discard_size_kib,omitempty"`
 }
 
 type NVMFSubsystemAddNSReq struct {
@@ -206,7 +230,7 @@ type BdevAioDeleteReq struct {
 
 type BdevAioResizeReq struct {
 	Name string `json:"name"`
-	Size uint64 `json:"size"`
+	//Size uint64 `json:"size"`
 }
 
 /*

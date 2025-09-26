@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : fix aio bdev expantion bug 
+
 package client
 
 import (
@@ -132,7 +150,7 @@ func (s *SPDK) BdevAioDelete(req BdevAioDeleteReq) (res bool, err error) {
 }
 
 func (s *SPDK) BdevAioResize(req BdevAioResizeReq) (res bool, err error) {
-	result, err := s.rawCli.Call("bdev_aio_resize", req)
+	result, err := s.rawCli.Call("bdev_aio_rescan", req)
 	if err != nil {
 		return
 	}
