@@ -1,4 +1,4 @@
-package controllers
+﻿package controllers
 
 import (
 	"os"
@@ -67,11 +67,11 @@ func NewAndInitControllerManager(req NewManagerRequest) manager.Manager {
 	rt.SetLogger(zap.New(zap.UseDevMode(true), misc.ZapTimeEncoder()))
 
 	mgr, err = rt.NewManager(kubeCfg, rt.Options{
-		Scheme:                 req.Scheme,
-		MetricsBindAddress:     req.MetricsAddr,
-		HealthProbeBindAddress: req.HealthProbeAddr,
+		Scheme:                  req.Scheme,
+		MetricsBindAddress:      req.MetricsAddr,
+		HealthProbeBindAddress:  req.HealthProbeAddr,
 		LeaderElection:         false,
-		LeaderElectionID:       "911ffb70.antstor.alipay.com",
+		LeaderElectionID:        "911ffb70.antstor.alipay.com",
 		// Port of webhook service
 		Port: req.WebhookPort,
 		// The server key and certificate must be named tls.key and tls.crt
