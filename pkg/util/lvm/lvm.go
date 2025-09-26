@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
+
 package lvm
 
 import "lite.io/liteio/pkg/util/osutil"
@@ -36,6 +54,8 @@ type LV struct {
 	Origin     string
 	OriginUUID string
 	OriginSize string
+	DataPercent     string
+	MetaDataPercent string
 }
 
 type LvOption struct {
@@ -49,6 +69,8 @@ type LvmIface interface {
 	ListVG() ([]VG, error)
 	ListLVInVG(vgName string) ([]LV, error)
 	ListPV() ([]PV, error)
+	CreateThinPool(vgName, poolName string) (err error)
+	CreateThinLV(vgName, poolName, lvName string, sizeByte uint64) (vol LV, err error)
 	CreateLinearLV(vgName, lvName string, opt LvOption) (vol LV, err error)
 	CreateStripeLV(vgName, lvName string, sizeByte uint64) (vol LV, err error)
 	RemoveLV(vgName, lvName string) (err error)

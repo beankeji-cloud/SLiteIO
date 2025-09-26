@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
+
 package lvm
 
 import (
@@ -48,7 +66,7 @@ var (
 	// --noheadings -o lv_all,vg_name,segtype --units b --reportformat json
 	lvsCmdJson = cmdArgs{
 		cmd:  "lvs",
-		args: []string{"--noheadings", "--units", "B", "-o", "lv_uuid,lv_name,lv_size,lv_path,lv_full_name,vg_name,lv_layout,lv_attr,lv_device_open,origin,origin_uuid,origin_size,vg_name,segtype", "--reportformat", "json"},
+		args: []string{"--noheadings", "--units", "B", "-o", "lv_uuid,lv_name,lv_size,lv_path,lv_full_name,vg_name,lv_layout,lv_attr,lv_device_open,origin,origin_uuid,origin_size,vg_name,segtype,data_percent,metadata_percent", "--reportformat", "json"},
 	}
 )
 
@@ -106,6 +124,8 @@ type reportLV struct {
 	OriginUUID string `json:"origin_uuid"`
 	// value example: "107374182400B"
 	OriginSize string `json:"origin_size"`
+	DataPercent     string `json:"data_percent"`
+	MetadataPercent string `json:"metadata_percent"`
 }
 
 type cmd struct {
@@ -297,6 +317,8 @@ func (c *cmd) listLVInVGJSON(vgName string) (lvs []LV, err error) {
 			Origin:     item.Origin,
 			OriginUUID: item.OriginUUID,
 			OriginSize: item.OriginSize,
+			DataPercent:     item.DataPercent,
+			MetaDataPercent: item.MetadataPercent,
 		}
 	}
 
@@ -494,6 +516,43 @@ func (c *cmd) getPvCount(vgName string) (pvCnt int, vg VG, err error) {
 			break
 		}
 	}
+	return
+}
+
+func (c *cmd) CreateThinPool(vgName, poolName string) (err error) {
+	execCmd := filepath.Join(c.binDir, "lvcreate")
+	out, err := c.exec.ExecCmd(execCmd, []string{"-n", poolName, "--type", "thin-pool", "-l", "100%FREE", vgName})
+	if err != nil {
+		klog.Errorf("err %+v, output: %s", err, string(out))
+		return
+	}
+	return
+}
+
+func (c *cmd) CreateThinLV(vgName, poolName, lvName string, sizeByte uint64) (vol LV, err error) {
+	var pvNum int
+	var out []byte
+	var vg VG
+	// get pv number
+	pvNum, vg, err = c.getPvCount(vgName)
+	if err != nil {
+		return
+	}
+	if pvNum < 1 {
+		err = fmt.Errorf("cannot found vg by name %s, %+v", vgName, vg)
+		return
+	}
+	var cmd = filepath.Join(c.binDir, "lvcreate")
+	out, err = c.exec.ExecCmd(cmd, []string{"-n", lvName, "-V", fmt.Sprintf("%dB", sizeByte), "--thin", vgName + "/" + poolName})
+	if err != nil {
+		klog.Errorf("err %+v, output: %s", err, string(out))
+		return
+	}
+
+	vol.Name = lvName
+	vol.VGName = vgName
+	vol.DevPath = fmt.Sprintf("/dev/%s/%s", vgName, lvName)
+	vol.SizeByte = sizeByte
 	return
 }
 
