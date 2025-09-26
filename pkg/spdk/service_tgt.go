@@ -1,11 +1,31 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : fix nvme auto reconnect bug
+
 package spdk
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 
-	"lite.io/liteio/pkg/spdk/jsonrpc/client"
 	"k8s.io/klog/v2"
+	"lite.io/liteio/pkg/spdk/jsonrpc/client"
 )
 
 type TargetCreateRequest struct {
@@ -68,7 +88,7 @@ func (ss *SpdkService) CreateTarget(req TargetCreateRequest) (result Target, err
 	klog.Infof("creating spdk target. req is %+v", req)
 
 	var (
-		nqn, bdevName, serialNumber, nsUUID, transAddr, transType string
+		nqn, bdevName, serialNumber, nsUUID, nsGUID, transAddr, transType string
 		svcID, addrFam                                            string
 		// parameter for nvmf_create_subsystem
 		allowAnyHost = ss.Cfg.AllowAnyHost
@@ -77,6 +97,8 @@ func (ss *SpdkService) CreateTarget(req TargetCreateRequest) (result Target, err
 	bdevName = req.BdevName
 	serialNumber = req.TargetInfo.SerialNumber
 	nsUUID = req.TargetInfo.NSUUID
+	hash := md5.Sum([]byte(nsUUID))
+	nsGUID = hex.EncodeToString(hash[:])
 	transAddr = req.TargetInfo.TransAddr
 	transType = req.TargetInfo.TransType
 	svcID = req.TargetInfo.SvcID
@@ -133,6 +155,7 @@ func (ss *SpdkService) CreateTarget(req TargetCreateRequest) (result Target, err
 				Namespace: client.NamespaceForAddNS{
 					BdevName: bdevName,
 					UUID:     nsUUID,
+					NGUID:    nsGUID,
 				},
 			})
 			if err != nil {
@@ -166,7 +189,6 @@ func (ss *SpdkService) CreateTarget(req TargetCreateRequest) (result Target, err
 				klog.Error(err)
 				return
 			}
-
 		}
 	}
 
@@ -189,6 +211,7 @@ func (ss *SpdkService) CreateTarget(req TargetCreateRequest) (result Target, err
 			Namespace: client.NamespaceForAddNS{
 				BdevName: bdevName,
 				UUID:     nsUUID,
+				NGUID:    nsGUID,
 			},
 		})
 		if err != nil {
