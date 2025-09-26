@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : nvme connect parameters optimization and nvme list-subsystem command optimization
+
 package nvme
 
 import (
@@ -78,6 +96,11 @@ func (cli *CmdClient) ListNvmeDisk() (list []NvmeDevice, err error) {
 	return
 }
 
+const (
+	DefaultReconnectDelaySec = 5
+	DefaultCtrlLossTMO       = 30
+)
+
 type ConnectTargetOpts struct {
 	// nvme client reconnect time interval in seconds
 	ReconnectDelaySec int
@@ -95,10 +118,10 @@ func (cli *CmdClient) ConnectTarget(transType, transAddr, svcID, nqn string, opt
 	args := []string{
 		"connect", "-t", transType, "-a", transAddr, "-s", svcID, "-n", nqn,
 	}
-	if opt.ReconnectDelaySec > 0 {
+	if opt.ReconnectDelaySec != 0 {
 		args = append(args, "--reconnect-delay", strconv.Itoa(opt.ReconnectDelaySec))
 	}
-	if opt.CtrlLossTMO > 0 {
+	if opt.CtrlLossTMO != 0 {
 		args = append(args, "--ctrl-loss-tmo", strconv.Itoa(opt.CtrlLossTMO))
 	}
 	if len(opt.HostTransAddr) > 0 {
@@ -134,8 +157,8 @@ func (cli *CmdClient) DisconnectTarget(req DisconnectTargetRequest) (output []by
 
 func (cli *CmdClient) ListSubsystems() (list SubsystemList, err error) {
 	var (
-		output  []byte
-		rawList []SubsystemItem
+		output []byte
+		//rawList []SubsystemItem
 	)
 	output, err = exec.Command(cli.NvmeCmdPath, "list-subsys", "-o", "json").Output()
 	if err != nil {
@@ -146,9 +169,9 @@ func (cli *CmdClient) ListSubsystems() (list SubsystemList, err error) {
 	if err != nil {
 		return
 	}
-	rawList = list.Subsystems
+	/*rawList = list.Subsystems
 
-	list.Subsystems = formatSybsysList(rawList)
+	list.Subsystems = formatSybsysList(rawList)*/
 
 	return
 }
