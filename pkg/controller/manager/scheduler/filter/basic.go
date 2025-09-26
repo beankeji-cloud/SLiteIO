@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
+
 package filter
 
 import (
@@ -15,6 +33,8 @@ func BasicFilterFunc(ctx *FilterContext, n *state.Node, vol *v1.AntstorVolume) b
 		return false
 	}
 
+	klog.V(1).Infof("BasicFilterFunc, node:%s, volNum:%d, vol:%s", n.Pool.Name, len(n.Volumes), vol.Name)
+
 	var (
 		cfg config.SchedulerConfig = ctx.Config
 		err *MergedError           = ctx.Error
@@ -25,6 +45,12 @@ func BasicFilterFunc(ctx *FilterContext, n *state.Node, vol *v1.AntstorVolume) b
 	if pass, hasErr := matchReservationFilter(ctx, n, vol); hasErr || pass {
 		klog.Infof("Reservation pass %t, vol=%s Pool %s", pass, vol.Name, n.Pool.Name)
 		return pass
+	}
+
+	if n.Pool.IsThin != vol.Spec.IsThin {
+		klog.Infof("[SchedFail] vol=%s Pool %s isThin %v != %v", vol.Name, n.Pool.Name, n.Pool.IsThin, vol.Spec.IsThin)
+		err.AddReason(ReasonThinProvision)
+		return false
 	}
 
 	// consider Pool FreeSpace
