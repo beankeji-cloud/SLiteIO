@@ -1,9 +1,9 @@
-# Build 
+# 构建 
 
 
-## Build LiteIO
+## 构建 SLiteIO
 
-### Prerequisites
+### 环境要求
 
 - linux or MacOS
 - golang >= 1.17
@@ -12,28 +12,28 @@
 ### AMD64
 
 ```
-# build disk-controller and disk-agent
+# 构建 disk-controller 和 disk-agent
 make controller
 
-# build CSI Driver
+# 构建 CSI Driver
 make csi
 
-# build scheduler plugin
+# 构建 scheduler plugin
 make scheduler
 ```
 
 ### ARM64
 
-the following command will build agents (build disk-agent and CSI Driver) for linux/arm64 and push the image to myregistry.com/LiteIO/node-disk-controller:latest
+以下命令将在 linux/arm64 平台构建相关组件（包括disk-agent和 CSI Driver），并将生成的镜像推送至 myregistry.com/SLiteIO/node-disk-controller:latest
 
 ```
-PLATFORMS=linux/arm64 IMAGE_ORG=myregistry.com/LiteIO TAG=latest make docker.buildx.agent
+PLATFORMS=linux/arm64 IMAGE_ORG=myregistry.com/SLiteIO TAG=latest make docker.buildx.agent
 ```
 
 
-## Build SPDK
+## 构建SPDK
 
-Recommend building SPDK on CentOS 7.9, which is well supported by SPDK community
+建议在 CentOS 7.9 上构建 SPDK，该版本受到 SPDK 社区的良好支持
 
 ```
 git clone https://github.com/spdk/spdk.git
@@ -41,18 +41,18 @@ cd spdk
 git checkout v22.05
 git submodule update --init
 
-# install dependencies
+# 安装依赖项
 ./scripts/pkgdep.sh
 yum install python3-pyelftools meson -y
  
-# remove libssl.so.1.1 if you don't want this runtime dependency
+# 如果不希望有此运行时依赖，请移除 libssl.so.1.1
 yum remove openssl11-devel
 mv /lib64/libssl.so.1.1 /lib64/libssl.so.1.1-backup
 
-# install numa libs if you want DPDK to support NUMA
+# 若需DPDK支持 NUMA，请安装 numa 库
 yum install numactl-devel -y
 
-# compile
+# 编译
 ./configure
 make
 ```

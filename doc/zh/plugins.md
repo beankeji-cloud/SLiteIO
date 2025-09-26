@@ -1,10 +1,10 @@
-# Plugins
+# 插件
 
 Disk-Controller 主要是使用 controller-runtime 库构建而成。为了有效地进行卷调度，控制器必须了解整个集群中的所有存储池和卷。为了实现这一点，有两个调解者：StoragePoolReconciler 和 AntstorVolumeReconciler。
 
-由于用户可能在不同的环境中运行 LiteIO，因此他们可能会对存储池和卷的调节有特定的要求。为了解决这个问题，LiteIO 提供了一个插件机制，包括调解者和调度器插件。
+由于用户可能在不同的环境中运行 SLiteIO，因此他们可能会对存储池和卷的调节有特定的要求。为了解决这个问题，SLiteIO 提供了一个插件机制，包括调解者和调度器插件。
 
-## Reconciler Plugin
+## 协调器插件
 
 插件包括三个方法：
 
@@ -14,7 +14,7 @@ Disk-Controller 主要是使用 controller-runtime 库构建而成。为了有�
 
 Context 对象包含一个名为 Object 的字段，表示正在调解的对象，这个对象可以是存储池或 Antstor 卷的指针。
 
-通过利用插件机制，用户可以轻松地定制 Disk-Controller 的行为，以满足他们的特定需求。这使得 LiteIO 成为一种高度灵活和可适应的存储管理解决方案。
+通过利用插件机制，用户可以轻松地定制 Disk-Controller 的行为，以满足他们的特定需求。这使得 SLiteIO 成为一种高度灵活和可适应的存储管理解决方案。
 
 ```
 
@@ -36,13 +36,13 @@ type Plugin interface {
 
 ```
 
-### Example: Metadata Syncer
+### 范例: 元数据同步插件
 
-一个常见需求是:通常需要将元数据导出到关系数据库，如 MySQL。LiteIO 认识到这个需求，并包括了一个内置的 MetaSyncPlugin，将存储池和卷同步到 MySQL 中。
+一个常见需求是:通常需要将元数据导出到关系数据库，如 MySQL。SLiteIO 认识到这个需求，并包括了一个内置的 MetaSyncPlugin，将存储池和卷同步到 MySQL 中。
 
 MetaSyncPlugin 默认情况下会自动加载到 Disk-Controller 中。要使用此功能，只需设置节点磁盘控制器的操作命令的 `--dbInfo` 标志，并提供以 MySQL Go driver 格式编码的数据库连接信息的 base64 编码。例如：base64(user:passwd@tcp(ip_address:port)/dbname?charset=utf8&interpolateParams=true)。
 
-### Develop Reconciler Plugin
+### 开发协调器插件
 
 1. 创建一个新的自定义插件结构体
 
@@ -76,11 +76,11 @@ controllers.RegisterPlugins([]controllers.PluginFactoryFunc{
 ```
 
 
-## Scheduler Plugin
+## 调度器插件
 
-LiteIO 的调度过程借鉴了 Kubernetes 的调度器，并利用过滤和评分机制来简化和扩展调度过程。
+SLiteIO 的调度过程借鉴了 Kubernetes 的调度器，并利用过滤和评分机制来简化和扩展调度过程。
 
-### Filtering
+### 过滤
 
 当调度一个新的卷时，它首先通过 FilterChain 进行过滤。FilterChain 包含当前集群状态和一系列过滤器运算符，称为 PredicateFunc。PredicateFunc 定义如下：
 

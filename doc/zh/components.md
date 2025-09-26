@@ -1,6 +1,6 @@
 # 架构简介
 
-LiteIO 包含以下6个组件:
+SLiteIO 包含以下6个组件:
 
 1. **Disk-Agent**: 负责管理单机节点上的存储池化(StoragePool), 卷管理，快照管理，上报心跳，采集监控信息
 2. **Disk-Controller**: 负责管理集群内 StoragePool 状态，调度 Volume 到 StoragePool
@@ -9,7 +9,7 @@ LiteIO 包含以下6个组件:
 5. **CSI-Driver**: 对接了 K8S CSI 接口的组件，部署在前端计算节点， 使用 nvme-tcp 工具连接后端 Volume
 6. **CSI-Controller**: K8S CSI 组件，中心化部署, 负责实际创建删除 PV
 
-## Concepts
+## 基本概念
 
 ### StoragePool
 
@@ -27,9 +27,9 @@ AntstorVolume 是 PersistentVolume 的具体实体，根据需要动态分配。
 AntstorSnapshot 表示卷的快照实体。两个数据引擎（LVM 和 SPDK LVS）具有不同的快照实现。两个数据引擎都不是分布式系统，因此，快照必须在与卷相同的节点上。
 
 
-## Lifecycle of a Volume
+## 卷生命周期
 
-### Creation
+### 创建卷
 
 1. 用户通过 Kubernetes API 创建一个 Pod 和 PVC，并等待 Pod 被调度。
 2. Pod 成功调度后，CSI-Controller 收到 PV 创建请求并调用 CreateVolume，在请求的参数下创建一个新的 AntstorVolume。
@@ -38,7 +38,7 @@ AntstorSnapshot 表示卷的快照实体。两个数据引擎（LVM 和 SPDK LVS
 5. CSI-Driver 发现卷已准备就绪，并尝试连接卷并将块设备挂载到请求的路径。
 
 
-### Deletion
+### 删除卷
 
 1. 用户通过 Kubernetes API 提交删除 Pod 和 PVC 的请求。
 2. Kubelet 调用 CSI-Driver 卸载和断开连接卷。
