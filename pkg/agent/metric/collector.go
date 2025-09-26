@@ -1,4 +1,4 @@
-package metric
+﻿package metric
 
 import (
 	"context"
@@ -44,11 +44,11 @@ func (c *Collector) Start(ctx context.Context) (err error) {
 			targets := c.lister.List()
 			if len(targets) > 0 {
 				start := time.Now()
-				for _, w := range c.writers {
+			for _, w := range c.writers {
 					wg.Add(1)
 					go func(writer metricWriter) {
 						errW := writer.writeMetrics(targets)
-						if errW != nil {
+				if errW != nil {
 							klog.Error(errW, writer.name())
 						}
 						wg.Done()
