@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
+
 package pool
 
 import (
@@ -57,7 +75,7 @@ func NewPoolService(cfg config.StorageStack) (ps *PoolService, err error) {
 
 	switch mode {
 	case v1.PoolModeKernelLVM:
-		poolEng = engine.NewLvmPoolEngine(cfg.Pooling.Name)
+		poolEng = engine.NewLvmPoolEngine(cfg.Pooling.Name, cfg.Pooling.IsThin, cfg.Pooling.OverprovisionRatio, cfg.Pooling.ThinPoolName)
 	case v1.PoolModeSpdkLVStore:
 		poolEng = engine.NewSpdkLvsPoolEngine(cfg.Pooling.Name, spdkSvc)
 	}
@@ -76,7 +94,7 @@ func NewPoolService(cfg config.StorageStack) (ps *PoolService, err error) {
 	ps = &PoolService{
 		spdk:        spdkSvc,
 		mode:        mode,
-		pool:        &v1.StoragePool{},
+		pool:        &v1.StoragePool{IsThin: cfg.Pooling.IsThin, OverprovisionRatio: cfg.Pooling.OverprovisionRatio},
 		poolEng:     poolEng,
 		bld:         builder,
 		spdkWatcher: NewSpdkWatcher(time.Minute, spdkSvc),

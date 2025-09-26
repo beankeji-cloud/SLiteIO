@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
+
 package pool
 
 import (
@@ -84,12 +102,30 @@ func (pb *PoolBuilder) Build() (info engine.StaticInfo, err error) {
 }
 
 func (pb *PoolBuilder) buildLVM(cfg config.StorageStack) (info engine.StaticInfo, err error) {
+	out, err := osutil.NewCommandExec().ExecCmd("vgchange", []string{"-ay"})
+	klog.Infof("vg activate res:%s, err:%v", out, err)
+
 	// Get vg by name cfg.Pooling.Name
 	info, err = pb.eng.PoolInfo(cfg.Pooling.Name)
 	if err == nil {
 		if info.LVM != nil {
 			klog.Infof("successfully read vg info: %+v", *info.LVM)
 		}
+		if cfg.Pooling.IsThin {
+			var vol engine.VolumeInfo
+			if vol, err = pb.eng.GetVolume(cfg.Pooling.ThinPoolName); err != nil {
+				return
+			}
+			if vol.LvmLV == nil {
+				klog.Infof("create thin pool: %v", cfg.Pooling.ThinPoolName)
+				err = lvm.LvmUtil.CreateThinPool(cfg.Pooling.Name, cfg.Pooling.ThinPoolName)
+				if err != nil {
+					klog.Error(err)
+					return
+				}
+			}
+		}
+
 		return
 	}
 
@@ -153,6 +189,14 @@ func (pb *PoolBuilder) buildLVM(cfg config.StorageStack) (info engine.StaticInfo
 			return
 		}
 		klog.Infof("created vg %+v", vg)
+
+		if cfg.Pooling.IsThin {
+			err = lvm.LvmUtil.CreateThinPool(cfg.Pooling.Name, cfg.Pooling.ThinPoolName)
+			if err != nil {
+				klog.Error(err)
+				return
+			}
+		}
 
 		info, err = pb.eng.PoolInfo(cfg.Pooling.Name)
 		if err == nil {
