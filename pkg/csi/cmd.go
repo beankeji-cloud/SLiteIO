@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : nvme connect parameters are configurable
+
 package csi
 
 import (
@@ -27,11 +45,13 @@ const (
 )
 
 type RpcServerOption struct {
-	DriverName       string
-	Endpoint         string
-	MaxVolume        int
-	NodeID           string
-	MetricListenAddr string
+	DriverName         string
+	Endpoint           string
+	MaxVolume          int
+	NvmeReconnectDelay int
+	NvmeCtrlLossTMO    int
+	NodeID             string
+	MetricListenAddr   string
 	// for performance profling
 	PProfAddr string
 	// init nvmf kernel module
@@ -73,6 +93,8 @@ func newRpcServerCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opt.Endpoint, "endpoint", "unix:///tmp/csi.sock", "CSI endpoint")
 	cmd.Flags().StringVar(&opt.NodeID, "nodeID", "node-1", "the id of the node")
 	cmd.Flags().IntVar(&opt.MaxVolume, "maxVolume", 20, "max number of volume on one node")
+	cmd.Flags().IntVar(&opt.NvmeReconnectDelay, "nvmeReconnectDelay", nvme.DefaultReconnectDelaySec, "the delay time of nvme reconnect")
+	cmd.Flags().IntVar(&opt.NvmeCtrlLossTMO, "nvmeCtrlLossTMO", nvme.DefaultCtrlLossTMO, "the timeout of nvme ctrl loss")
 	cmd.Flags().StringVar(&opt.MetricListenAddr, "metricListenAddr", "", "the listen addr of metric server")
 	// for controller
 	cmd.Flags().BoolVar(&opt.InitNvmfKernelModule, "initKernelMod", true, "load nvmf kernel mod at starting process")
@@ -113,14 +135,16 @@ func (opt *RpcServerOption) run() (err error) {
 	}
 
 	drv := driver.NewCSIDriver(driver.NewCSIDriverOption{
-		Name:          opt.DriverName,
-		NodeID:        opt.NodeID,
-		Version:       version.Get().GitVersion,
-		MaxVolume:     int64(opt.MaxVolume),
-		VolumeCap:     driver.DefaultVolumeAccessModeType,
-		ControllerCap: driver.DefaultControllerServiceCapability,
-		NodeCap:       driver.DefaultNodeServiceCapability,
-		PluginCap:     driver.DefaultPluginCapability,
+		Name:               opt.DriverName,
+		NodeID:             opt.NodeID,
+		Version:            version.Get().GitVersion,
+		MaxVolume:          int64(opt.MaxVolume),
+		NvmeReconnectDelay: opt.NvmeReconnectDelay,
+		NvmeCtrlLossTMO:    opt.NvmeCtrlLossTMO,
+		VolumeCap:          driver.DefaultVolumeAccessModeType,
+		ControllerCap:      driver.DefaultControllerServiceCapability,
+		NodeCap:            driver.DefaultNodeServiceCapability,
+		PluginCap:          driver.DefaultPluginCapability,
 	})
 
 	cloudMgr, err := client.NewKubeAPIClient(cfg)
