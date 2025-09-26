@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm volume export by nvmf_tgt and pod evition
+
 package sync
 
 import (
@@ -93,16 +111,16 @@ func (vs *VolumeSyncer) syncOneVolume(volume *v1.AntstorVolume) (err error) {
 		return vs.handleDeletion(volume)
 	}
 
-	klog.Infof("syncing volume %s to create logic vol and spdk target", volume.Name)
+	klog.Infof("syncing volume %s to create logic vol and spdk target, host:%v, target:%v", volume.Name, volume.Spec.HostNode, volume.Spec.TargetNodeId)
 
-	err = vs.expandVolume(volume)
-	if err != nil {
+	needReturn, err = vs.applyVolume(volume)
+	if err != nil || needReturn {
 		klog.Error(err)
 		return
 	}
 
-	needReturn, err = vs.applyVolume(volume)
-	if err != nil || needReturn {
+	err = vs.expandVolume(volume)
+	if err != nil {
 		klog.Error(err)
 		return
 	}
@@ -196,7 +214,7 @@ func (vs *VolumeSyncer) expandVolume(vol *v1.AntstorVolume) (err error) {
 	if aioVolume != nil {
 		err = vs.poolService.SpdkService().ResizeAioBdev(spdk.AioBdevResizeRequest{
 			BdevName:   aioVolume.BdevName,
-			TargetSize: targetSize,
+			//TargetSize: targetSize,
 		})
 		if err != nil {
 			klog.Error(err)
@@ -679,13 +697,36 @@ func (vs *VolumeSyncer) applyVolume(volume *v1.AntstorVolume) (needReturn bool, 
 		}
 	}
 
+	if volume.Status.Status != v1.VolumeStatusReady {
+		return
+	}
+
 	// Apply allowHosts config to volume.
 	// datacontrol and volgroup are created simultaneously. So when volume is ready,
 	// hostNode info of the volume may be empty. A while later, datacontrol controller writes hostNode to
 	// volgroup, and the info will be passed to the volumes.
 	// So we must apply allowHosts to volume even if the status is Ready.
 	klog.Infof("volume %s is ready, apply allowHosts to volume", volume.Name)
+	if volume.Spec.Type == v1.VolumeTypeKernelLVol && volume.Spec.TargetNodeId != volume.Spec.HostNode.ID && volume.Spec.SpdkTarget == nil {
+		return vs.createOpenAccess(volume)
+	}
+
 	if volume.Spec.SpdkTarget != nil {
+		var aioVolume *pool.AioVolume
+		var lvolVolume *pool.SpdkLVolume
+		switch volume.Spec.Type {
+		case v1.VolumeTypeKernelLVol:
+			aioVolume = &pool.AioVolume{
+				DevPath:  volume.Spec.KernelLvol.DevPath,
+				BdevName: volume.Spec.SpdkTarget.BdevName,
+			}
+
+		case v1.VolumeTypeSpdkLVol:
+			lvolVolume = &pool.SpdkLVolume{
+				LvsName:  volume.Spec.SpdkLvol.LvsName,
+				LvolName: volume.Spec.SpdkLvol.Name,
+			}
+		}
 		var allowHosts []string
 		var hostPool *v1.StoragePool
 		var tgt = spdk.Target{
@@ -712,6 +753,8 @@ func (vs *VolumeSyncer) applyVolume(volume *v1.AntstorVolume) (needReturn bool, 
 		vs.poolService.Access().ExposeAccess(pool.Access{
 			OpenAccess:   tgt,
 			AllowHostNQN: allowHosts,
+			LVol:         lvolVolume,
+			AIO:          aioVolume,
 		})
 	}
 

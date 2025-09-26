@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin pool
+
 package sync
 
 import (
@@ -181,9 +199,12 @@ func (ps *PoolSyncer) syncPool() (err error) {
 			}
 		}
 
-		if !reflect.DeepEqual(pool.Annotations, apiPool.Annotations) || !reflect.DeepEqual(pool.Spec, apiPool.Spec) {
+		if !reflect.DeepEqual(pool.Annotations, apiPool.Annotations) || !reflect.DeepEqual(pool.Spec, apiPool.Spec) ||
+			pool.IsThin != apiPool.IsThin || pool.OverprovisionRatio != apiPool.OverprovisionRatio {
 			apiPool.Annotations = pool.Annotations
 			apiPool.Spec = pool.Spec
+			apiPool.IsThin = pool.IsThin
+			apiPool.OverprovisionRatio = pool.OverprovisionRatio
 			bs, _ := json.Marshal(apiPool)
 			klog.Infof("updating StoragePool: %s", string(bs))
 			_, err = spCli.Update(context.Background(), apiPool, metav1.UpdateOptions{})
@@ -246,6 +267,7 @@ func setPoolAttributes(pool *v1.StoragePool, spdkVer pool.SpdkStatus) {
 	quant := resource.NewQuantity(pool.GetVgTotalBytes(), resource.BinarySI)
 	pool.Status.Capacity[v1.ResourceDiskPoolByte] = *quant
 	pool.Status.VGFreeSize = *quant
+	pool.Status.VGVirtualFreeSize = *quant
 }
 
 func (ps *PoolSyncer) updatePoolStatus() (err error) {
@@ -285,6 +307,7 @@ func (ps *PoolSyncer) updatePoolStatus() (err error) {
 		klog.Infof("update StoragePool condition and cap, %+v, server-side status is %+v", *realStatus, apiPool.Status)
 		apiPool.Status.Conditions = realStatus.Conditions
 		apiPool.Status.VGFreeSize = realStatus.VGFreeSize.DeepCopy()
+		apiPool.Status.VGVirtualFreeSize = realStatus.VGVirtualFreeSize.DeepCopy()
 		apiPool.Status.Capacity[v1.ResourceDiskPoolByte] = realStatus.Capacity[v1.ResourceDiskPoolByte]
 		// APIServer is supposed to check resourceVersion before updating the data.
 		// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
@@ -336,7 +359,7 @@ func setStatusConditions(pool *v1.StoragePool, poolSvc pool.StoragePoolServiceIf
 }
 
 func setStatusVgFree(pool *v1.StoragePool, poolSvc pool.StoragePoolServiceIface) (err error) {
-	totalByte, freeByte, err := poolSvc.PoolEngine().TotalAndFreeSize()
+	totalByte, freeByte, virtualFreeByte, _, _, err := poolSvc.PoolEngine().TotalAndFreeSize()
 	if err != nil {
 		klog.Error(err)
 		return err
@@ -347,11 +370,13 @@ func setStatusVgFree(pool *v1.StoragePool, poolSvc pool.StoragePoolServiceIface)
 	}
 
 	quant := resource.NewQuantity(int64(freeByte), resource.BinarySI)
+	virtualQuant := resource.NewQuantity(int64(virtualFreeByte), resource.BinarySI)
 	total := resource.NewQuantity(int64(totalByte), resource.BinarySI)
 	// quant.String() is important, it will set q.s field. This field will affect reflect.DeepEqual()
 	klog.Infof("set local pool ResourceLvmFreeByte %s, ResourceDiskPoolByte %s", quant.String(), total.String())
 	// Key storage/vg-free indicates the real free bytes left in the VG
 	pool.Status.VGFreeSize = *quant
+	pool.Status.VGVirtualFreeSize = *virtualQuant
 	pool.Status.Capacity[v1.ResourceDiskPoolByte] = *total
 
 	return
