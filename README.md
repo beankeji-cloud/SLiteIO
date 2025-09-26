@@ -1,108 +1,111 @@
-# LiteIO 
+<p align="center"><img src=doc/image/logo.png width="300" /></p>
+<p align="center"><b>云原生存储解决方案</b></p>
+<p align="center">
+  [<a href="README.md">中文</a>] | [<a href="README-en.md">English</a>] 
+</p>
 
-**LiteIO** is a cloud-native block device service that uses multiple storage engines, including SPDK and LVM, to achieve high performance. It is specifically designed for Kubernetes in a hyper-converged architecture, allowing for block device provisioning across the entire cluster.
 
-## Features
 
-1. **High Performence**: LiteIO's data engine is built on SPDK and uses NVMe-over-Fabric protocol to directly connect computing nodes to storage nodes. With efficient protocol and backend I/O polling, LiteIO provides high performance close to that of local disk.
-2. **Cloud-native**: LiteIO integrates with Kubernetes through CSI controller and driver, providing a cloud-native user interface. Users can dynamically allocate or destroy LiteIO volumes using PVC.
-3. **Easy Setup**: With only a few dependencies, such as Hugepages, LiteIO can be quickly set up with a single command line.
-4. **Hyper-converged Architecture**: LiteIO follows a hyper-converged architecture, where a single node can function as both a frontend and backend simultaneously. There is no minimum number of nodes required to initialize a new cluster.
+# SLiteIO 
+本项目基于[eosphoros-ai/liteio]开发，遵循Apache-2.0 license协议。
+**SLiteIO** 是一款云原生有状态容器化的存储解决方案，依赖于LVM存储引擎，可作为本地卷直接使用，也可通过SPDK导出NVME-OF远端卷。由于其极简的存储IO路径，即使是普通SSD也能发挥出不错的性能。该方案专为超融合架构下的 Kubernetes 设计，可实现集群范围的块设备动态供给。
 
-## Motivation
+## 特性
 
-Many distributed data-intensive applications, like databases, often opt for local NVMe disks for high performance and cost-effectiveness compared to distributed disk services like EBS. However, this preference can lead to an imbalance in resource utilization. For instance, a node may experience CPU or memory shortages while still having ample storage resources available. To address this issue, our aim is to develop a system that can effectively leverage these fragmented storage resources while maintaining high performance, which is close to local disks.
+1. **低门槛**: 不仅支持NVME和RDMA网络，满足对极致高性能的追求；还支持普通SSD和网络，也能提供不俗的性能，为初创企业或者设备利旧提供便利。                                                                                                                                                                                                      
+2. **云原生**: SLiteIO通过CSI控制器和驱动实现与Kubernetes集成，提供云原生用户接口。用户可以通过PVC动态分配和销毁SLiteIO卷。
+3. **易安装**: 除了一些少量的配置依赖，SLiteIO可以通过一条命令行快速的安装部署。
+4. **极稳定**: 直接利用LVM作为数据引擎，本地卷直接访问，远端卷通过SPDK导出。整个运行时数据链路非常简单，从而带来极致的稳定。
+5. **省成本**: 支持精简模式，可以做到存储空间用多少分配多少，避免过多分配带来的存储空间浪费。
+6. **丰富的调度策略**: 支持跨节点、跨机柜、跨接入等多种高可用调度策略，满足不同等级的生产系统高可用要求。
 
-## Architecture
+## 目的
 
-LiteIO consists of six main components:
+当前有很多系统运行在虚机或者物理机上，在集群到达一定规模后，存在大量的资源利用率失衡：比如有的节点出现CPU或内存不足，却有大量的存储闲置资源。因此在做容器化改造时，有状态的系统比如数据库采用哪种存储方案，充分利用这些闲置存储资源，成为新的难题。为解决这一问题，我们的目标是开发一种系统，能够在保持接近本地磁盘性能的同时，有效整合这些碎片化的存储资源。
 
-1. **Disk-Agent**: The Disk-Agent is installed on each backend node and manages the StoragePool on that node. It interacts with the data engine to create and delete volumes and snapshots. Additionally, the Disk-Agent reports the status of the StoragePool to the central control and collects volume metrics, which can be exposed as a Prometheus exporter.
-2. **Disk-Controller**: The Disk-Controller is aware of all the StoragePools and Volumes in the cluster. Its primary responsibility is to schedule a requested volume to a suitable StoragePool.
-3. **nvmf_tgt**: nvmf_tgt is the data engine based on SPDK, which provides storage abstraction and capabilities such as LVS (Logical Volume Store), LVOL (Logical Volume), aio_bdev, NoF over TCP transport, and NoF subsystems. While nvmf_tgt is optional, it is required if applications need storage beyond local disk. LiteIO also supports Linux LVM as a data engine, which is sufficient for local storage scenarios.
-4. **nvme-tcp**: nvme-tcp is a kernel module that provides TCP transport for NVMe over fabrics. It must be installed on computing nodes.
-5. **CSI-Driver**: LiteIO's CSI-Driver implements K8S CSI and is deployed as a DaemonSet pod on computing nodes. It utilizes nvme-cli tools to connect to backend storage.
-6. **CSI-Controller**: The CSI-Controller is a central service that handles the creation and deletion of PVs.
+## 架构
 
-Overall, LiteIO's architecture provides a scalable and efficient approach to cloud-native block storage. By utilizing multiple components and interfaces, LiteIO offers a flexible and configurable solution for various storage scenarios.
+SLiteIO由六个组件组成：
+
+1. **Disk-Agent**: Disk-Agent安装在每个后端节点上，并且管理该节点上的存储池，该模块与数据引擎交互，实现卷与快照的创建与删除功能。额外的，Disk-Agent还给控制节点上报了存储池状态并给Prometheus提供卷统计信息。
+2. **Disk-Controller**: Disk-Controller掌握了集群种所有的存储池和卷的全局状态信息。它的主要任务时将卷调度到合适的存储池。
+3. **nvme-tcp**: nvme-tcp是一个内核模块，提供了基于TCP的NVME-OF协议。
+4. **nvmf_tgt**: nvmf_tgt提供了将LVM卷导出成nvme target，从而实现远端卷。
+5. **CSI-Driver**: CSI-Driver实现了Kubernetes CSI标准接口，并以Pod形式部署在计算节点上。它通过lvm和nvme-cli工具链实现与后端存储的连接。
+6. **CSI-Controller**: CSI-Controller是个中心化服务，提供PV的创建于删除处理。 
+
+总体而言，SLiteIO架构为云原生块存储提供了一种可扩展且高效的实现方案。通过多组件协同与接口抽象，该架构能够灵活适配不同存储场景的需求。
 
 ![](doc/image/architecture.jpg)
 
-## Quick Start
+## 快速开始
 
-The Quick Start Guide helps you to setup a local K8S cluster and deploy LiteIO in it.
+快速开始指南帮助您快速安装一个K8s集群，并在上面部署SLiteio。
 
-- [Quick Start](doc/en/quick-start.md)
-- [Setup K8S by kubeadm](doc/en/kubeadm-install.md)
+- [快速开始](doc/zh/install.md)
+- [使用kubeadm安装K8s](doc/zh/kubeadm-install.md)
 
-## Performance Benchmark
+## MYSQL数据库场景性能测试
+**测试环境**：40C/256G，7 * 900GB SSD Raid5，2 * 10Gb   3台                    
+**测试工具**：Sysbench               
+**测试方法**：通过Kubernetes容器化场景和KVM虚拟化场景进行对比测试                                                                                               
+**性能测试场景**：K8S + SLiteIO 本地卷 、K8S + SLiteIO 远端卷、KVM 本地卷
 
-### LiteIO vs Native Disk
+创建5对一主一从8C/16G/75GB的MYSQL实例，初始创建300张表，每张表插入100万条测试数据，通过Sysbentch模拟8、16、32、64、128线程并发分别进行只读、只写和混合读写的测试，测试时长180S。 
 
-The Performance Results of FIO with 1 Disk of Native Disks, LiteIO NoF, and OpenEBS Mayastor: (a) IOPS (b) Bandwidth.
+### 只读（oltp_read_only）     
 
-Unit: IOPS(K)
+Unit: TPS
 
-|                        | Native-Disk | LiteIO | Mayastor |
-|------------------------|-------------|----------|----------|
-| 4k-rand w-dq16 4jobs   | 356.2       | 317.0    | 218.0    |
-| 4k-rand w-dq1 1jobs    | 62          | 18       | 15       |
-| 4k-rand r-dq128 8jobs  | 617.0       | 614.6    | 243.8    |
-| 4k-rand r-dq1 1jobs    | 11.7        | 8.5      | 7.6      |
-| 128k-seq r-dq128 4jobs | 24.9        | 24.8     | 19.7     |
-| 128k-seq w-dq128 4jobs | 15.6        | 15.5     | 15.4     |
+|    Threads  |  K8S + SLiteIO Local | K8S + SLiteIO Remote | KVM Local |
+|-------------|-------------|----------|----------|
+| 8   | 8441.26       | 8452.56   | 2659.97  |
+| 16  | 9533.01       | 9597.72   | 3478.41  |
+| 32  | 9656.76       | 9625.8    | 4082.99  |
+| 64  | 9843          | 9850      | 4577.7   |
+| 128 | 9623.68       | 9623.37   | 5002.31  |
 
+### 只写（oltp_write_only）
 
-Unit: Bandwidth(MB/s)
+Unit: TPS
 
-|                        | Native-Disk | LiteIO | Mayastor |
-|------------------------|-------------|----------|----------|
-| 4k-rand w-dq16 4jobs   | 1459.6      | 1299.2   | 896.4    |
-| 4k-rand w-dq1 1jobs    | 255.6       | 76.1     | 63.1     |
-| 4k-rand r-dq128 8jobs  | 2528.0      | 2516.4   | 998.0    |
-| 4k-rand r-dq1 1jobs    | 47.8        | 34.6     | 31.1     |
-| 128k-seq r-dq128 4jobs | 3263.0      | 3271.0   | 2585.6   |
-| 128k-seq w-dq128 4jobs | 2037.6      | 2030.0   | 2021.4   |
+|    Threads  |  K8S + SLiteIO Local | K8S + SLiteIO Remote | KVM Local |
+|-------------|-------------|----------|----------|
+| 8   | 13409.11     | 7926.2   | 8694.35  |
+| 16  | 17677.05     | 12203.34 | 12237.73 |
+| 32  | 20760.74     | 17277.57 | 15532.35 |
+| 64  | 21864.19     | 20428.38 | 17265.81 |
+| 128 | 25056.6      | 24343.81 | 19032.64 |
 
-### LiteIO vs ESSD-PL3
+### 读写（oltp_read_write）
 
-4K Mixed Random Read/Write (70%/30%) IOPS with 1 Job
+Unit: TPS
 
-Unit: IOPS(K)
+|    Threads  |  K8S + SLiteIO Local | K8S + SLiteIO Remote | KVM Local |
+|-------------|-------------|----------|----------|
+| 8   | 5159.63     | 4355.29  | 2077.54|
+| 16  | 6115.72     | 5908.65  | 2499.74|
+| 32  | 6339.87     | 6365.55  | 2904.73|
+| 64  | 6861.48     | 6851.73  | 3254.35|
+| 128 | 6997.42     | 6989.52  | 3658.97|
 
-| Queue Depth | ESSD-PL3 | LiteIO |
-|-------------|----------|----------|
-| 1           | 5.0      | 6.0      |
-| 4           | 20.9     | 23.4     |
-| 16          | 83.3     | 84.9     |
-| 128         | 206.1    | 333.9    |
-| 256         | 206.4    | 426.2    |
-
-
-## Target Scenario
-
-LiteIO is not a conventional distributed storage system for general purposes. It is best suited for users who require high IO performance similar to that of local disk. For example, distributed databases and AI training jobs benefit from LiteIO's ability to provide both local and remote volumes.
-
-LiteIO is specifically designed for Kubernetes and allows users to utilize all storage on all nodes. This makes it ideal for users who need to run apps in a K8S environment.
-
-However, it is important to note that LiteIO does not currently support data replication. If your application requires data replication, please note that it is on our roadmap for future development. In the meantime, it is recommended that your application has data replicas and can guarantee data security by itself, or that you are tolerant of data loss.
-
-## Advanced Topics
-
-- [Build Guide](doc/en/build.md)
-- [How to Customize Plugins](doc/en/plugins.md)
+总体来说，MYSQL容器化使用SLiteIO存储方案，在并发较高时，本地卷和远程卷的性能几乎持平。并且容器化后的性能远超出虚拟化场景。
 
 
-## Roadmap
-
-- [x] Disk-Agent exposes metric service
-- [ ] SPDK volume replica
+## 应用场景
+区别于传统分布式存储，Sliteio本身没有做数据冗余，因此适用于业务或上层中间件自身有数据冗余机制的场景下，比如数据库、分布式缓存等。Sliteio特别适合容器化的场景的有状态服务，预算有限需要利旧传统服务器，可以充分的利用和分配存储资源，并获得不错的性能。
 
 
-## Contact
 
-Wechat Group QRCode
+## 高级主题
 
-<p align="center">
-  <img src="./doc/image/wechat_group.JPG" width="300px" />
-</p>
+- [构建指南](doc/zh/build.md)
+- [插件定制指南](doc/zh/plugins.md)
+
+
+## 发展路线
+
+
+## 联系我们
+
+**邮箱**：13515105030@163.com
