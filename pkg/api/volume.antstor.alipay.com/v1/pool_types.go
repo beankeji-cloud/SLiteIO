@@ -1,18 +1,20 @@
-/*
-Copyright 2021.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume
 
 package v1
 
@@ -182,6 +184,10 @@ type StoragePoolStatus struct {
 	// +optional
 	VGFreeSize resource.Quantity `json:"vgFreeSize,omitempty"`
 
+	// virtual free space of VG for thin pool
+	// +optional
+	VGVirtualFreeSize resource.Quantity `json:"vgVirtualFreeSize,omitempty"`
+
 	// 子系统的状态，例如 SpkdTarget 状态(json rpc是否正常)， LVM VG 状态(接口调用是否正常)
 	// +patchStrategy=merge
 	// +optional
@@ -215,6 +221,12 @@ type StoragePool struct {
 
 	// +optional
 	Status StoragePoolStatus `json:"status,omitempty"`
+
+	// +optional
+	IsThin bool `json:"isThin,omitempty"`
+
+	// +optional
+	OverprovisionRatio float64 `json:"overprovisionRatio,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

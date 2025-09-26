@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support lvm thin volume and csi storage capacity tracking
+
 package v1
 
 import (
@@ -28,6 +46,17 @@ func (sp *StoragePool) GetVgTotalBytes() int64 {
 	return bytes
 }
 
+func (sp *StoragePool) GetStorageBytes() int64 {
+	var bytes int64
+	var ok bool
+	storeQuan := sp.Status.Capacity[ResourceDiskPoolByte]
+	bytes, ok = storeQuan.AsInt64()
+	if !ok {
+		bytes = int64(math.Round(storeQuan.AsApproximateFloat64()))
+	}
+	return bytes
+}
+
 // GetVgFreeBytes get free space of VolumeGroup in byte. Reserved space is used, therefore it is excluded.
 // VG剩余空间, 单位是字节, 不包含保留LV空间
 func (sp *StoragePool) GetVgFreeBytes() int64 {
@@ -37,6 +66,26 @@ func (sp *StoragePool) GetVgFreeBytes() int64 {
 		freeBytes = int64(math.Round(freeDisk.AsApproximateFloat64()))
 	}
 	return freeBytes
+}
+
+func (sp *StoragePool) GetVgVirtualFreeBytes() int64 {
+	var freeDisk = sp.Status.VGVirtualFreeSize
+	var freeBytes, ok = freeDisk.AsInt64()
+	if !ok {
+		freeBytes = int64(math.Round(freeDisk.AsApproximateFloat64()))
+	}
+	return freeBytes
+}
+
+func (sp *StoragePool) GetFreeBytes() int64 {
+	free := sp.GetVgFreeBytes()
+	if sp.IsThin {
+		vfree := sp.GetVgVirtualFreeBytes()
+		if vfree < free {
+			free = vfree
+		}
+	}
+	return free
 }
 
 // GetAvailableBytes get total available space, excluding reserved space.
