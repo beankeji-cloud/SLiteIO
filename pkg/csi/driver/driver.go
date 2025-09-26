@@ -1,3 +1,21 @@
+﻿// =======================================================================
+// Copyright 2021 The LiteIO Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// =======================================================================
+// Modifications by The SLiteIO Authors on 2025:
+// - Modification : support nvme connect parameters configurable
+
 package driver
 
 import (
@@ -8,25 +26,29 @@ import (
 )
 
 type CSIDriver struct {
-	name          string
-	version       string
-	nodeID        string
-	maxVolume     int64
-	volumeCap     []*csi.VolumeCapability_AccessMode
-	controllerCap []*csi.ControllerServiceCapability
-	nodeCap       []*csi.NodeServiceCapability
-	pluginCap     []*csi.PluginCapability
+	name               string
+	version            string
+	nodeID             string
+	maxVolume          int64
+	nvmeReconnectDelay int
+	nvmeCtrlLossTMO    int
+	volumeCap          []*csi.VolumeCapability_AccessMode
+	controllerCap      []*csi.ControllerServiceCapability
+	nodeCap            []*csi.NodeServiceCapability
+	pluginCap          []*csi.PluginCapability
 }
 
 type NewCSIDriverOption struct {
-	Name          string
-	Version       string
-	NodeID        string
-	MaxVolume     int64
-	VolumeCap     []csi.VolumeCapability_AccessMode_Mode
-	ControllerCap []csi.ControllerServiceCapability_RPC_Type
-	NodeCap       []csi.NodeServiceCapability_RPC_Type
-	PluginCap     []*csi.PluginCapability
+	Name               string
+	Version            string
+	NodeID             string
+	MaxVolume          int64
+	NvmeReconnectDelay int
+	NvmeCtrlLossTMO    int
+	VolumeCap          []csi.VolumeCapability_AccessMode_Mode
+	ControllerCap      []csi.ControllerServiceCapability_RPC_Type
+	NodeCap            []csi.NodeServiceCapability_RPC_Type
+	PluginCap          []*csi.PluginCapability
 }
 
 // NewCSIDriver create a CSI driver
@@ -42,6 +64,8 @@ func NewCSIDriver(opt NewCSIDriverOption) *CSIDriver {
 	d.nodeID = opt.NodeID
 	// Setup max volume
 	d.maxVolume = opt.MaxVolume
+	d.nvmeReconnectDelay = opt.NvmeReconnectDelay
+	d.nvmeCtrlLossTMO = opt.NvmeCtrlLossTMO
 	// Setup cap
 	d.addVolumeCapabilityAccessModes(opt.VolumeCap)
 	d.addControllerServiceCapabilities(opt.ControllerCap)
@@ -153,6 +177,14 @@ func (d *CSIDriver) GetInstanceId() string {
 
 func (d *CSIDriver) GetMaxVolumePerNode() int64 {
 	return d.maxVolume
+}
+
+func (d *CSIDriver) GetNvmeReconnectDelay() int {
+	return d.nvmeReconnectDelay
+}
+
+func (d *CSIDriver) GetNvmeCtrlLossTMO() int {
+	return d.nvmeCtrlLossTMO
 }
 
 func (d *CSIDriver) GetControllerCapability() []*csi.ControllerServiceCapability {
