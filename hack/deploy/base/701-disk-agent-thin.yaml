@@ -1,5 +1,5 @@
 ﻿# =======================================================================
-# Copyright 2021 The LiteIO Authors.
+# Copyright 2025 The SLiteIO Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =======================================================================
-# Modifications by The SLiteIO Authors on 2025:
-# - Modification : support lvm thin volume and limit open file num
 
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: obnvmf-disk-agent-app
+  name: obnvmf-disk-agent-thin-app
   namespace: obnvmf
 spec:
   updateStrategy:
@@ -28,19 +26,19 @@ spec:
     type: RollingUpdate
   selector:
     matchLabels:
-      app: obnvmf-disk-agent
+      app: obnvmf-disk-agent-thin
   template:
     metadata:
       labels:
-        app: obnvmf-disk-agent
+        app: obnvmf-disk-agent-thin
     spec:
-      #priorityClassName: system-node-critical
       nodeSelector:
-        lite.io/thin: 'false'
+        lite.io/thin: 'true'
+      #priorityClassName: system-node-critical
       serviceAccount: obnvmf-admin
       hostNetwork: true
       containers:
-        - name: node-disk-agent
+        - name: node-disk-agent-thin
           securityContext:
             privileged: true
             capabilities:
@@ -49,7 +47,7 @@ spec:
           image: snleo123/node-disk-controller:v1.0
           #image: crpi-g408pn42wcgx8bkz.cn-hangzhou.personal.cr.aliyuncs.com/sliteio/node-disk-controller:v1.0  #国内镜像源
           #imagePullPolicy: Always
-          command: ["sh", "-c", "ulimit -n 655350 && exec /node-disk-controller agent --nodeId=$(NODE_ID) --heartbeatInterval=20s --config=/config/agent-config.yaml"]
+          command: ["sh", "-c", "ulimit -n 655350 && exec /node-disk-controller agent --nodeId=$(NODE_ID) --heartbeatInterval=20s --config=/config/agent-thin-config.yaml"]
           env:
             - name: NODE_ID
               valueFrom:

@@ -14,83 +14,82 @@
 # limitations under the License.
 # =======================================================================
 # Modifications by The SLiteIO Authors on 2025:
-# - Modification : support lvm thin volume and limit open file num
+# - Modification : use new nvmf_tgt image to support lvm thin volume export and mount option:discard
 
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: obnvmf-disk-agent-app
+  name: nvmf-tgt
   namespace: obnvmf
 spec:
   updateStrategy:
-    rollingUpdate:
-      maxUnavailable: 200
     type: RollingUpdate
   selector:
     matchLabels:
-      app: obnvmf-disk-agent
+      app: nvmf-tgt
+      role: node
   template:
     metadata:
       labels:
-        app: obnvmf-disk-agent
+        app: nvmf-tgt
+        role: node
     spec:
-      #priorityClassName: system-node-critical
-      nodeSelector:
-        lite.io/thin: 'false'
       serviceAccount: obnvmf-admin
       hostNetwork: true
       containers:
-        - name: node-disk-agent
+        - name: nvmf-tgt
           securityContext:
             privileged: true
             capabilities:
               add: ["ALL"]
             allowPrivilegeEscalation: true
-          image: snleo123/node-disk-controller:v1.0
-          #image: crpi-g408pn42wcgx8bkz.cn-hangzhou.personal.cr.aliyuncs.com/sliteio/node-disk-controller:v1.0  #国内镜像源
-          #imagePullPolicy: Always
-          command: ["sh", "-c", "ulimit -n 655350 && exec /node-disk-controller agent --nodeId=$(NODE_ID) --heartbeatInterval=20s --config=/config/agent-config.yaml"]
-          env:
-            - name: NODE_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
+          image: snleo123/nvmf_tgt:v1.6
+          #image: crpi-g408pn42wcgx8bkz.cn-hangzhou.personal.cr.aliyuncs.com/sliteio/nvmf_tgt:v1.6  # 国内镜像源
+          command:
+          - nvmf_tgt
+          args:
+            - "-m"
+            - "[1]"
+            - "-s" #memory size in MB for DPDK
+            - "256"
+            - "--num-trace-entries"
+            - "0"
           resources:
+            requests:
+              cpu: "1"
+              memory: "512Mi"
             limits:
               cpu: "1"
-              memory: "500Mi"
-            requests:
-              cpu: "100m"
-              memory: "100Mi"
+              memory: "512Mi"
+              hugepages-2Mi: "512Mi"
           volumeMounts:
             - name: device-dir
               mountPath: /dev
-            # for File /usr/tmp/spdk.sock
-            - name: spdk-sock-file-dir
+            - name: log-dir
+              mountPath: /tmp/log
+            - name: hugepage
+              mountPath: /hugepages
+            - name: sock-dir
               mountPath: /usr/tmp
-            - name: agent-config
-              mountPath: /config
             - name: data-dir
               mountPath: /local-storage
-            - name: nvme-config
-              mountPath: /etc/nvme
       volumes:
         - name: device-dir
           hostPath:
             path: /dev
             type: Directory
-        - name: spdk-sock-file-dir
+        - name: log-dir
+          hostPath:
+            path: /tmp/log
+            type: DirectoryOrCreate
+        - name: sock-dir
           hostPath:
             path: /var/spdk
             type: DirectoryOrCreate
+        - name: hugepage
+          emptyDir:
+            medium: HugePages
         - name: data-dir
           hostPath:
             path: /local-storage
-            type: DirectoryOrCreate
-        - name: agent-config
-          configMap:
-            name: storage-setting
-        - name: nvme-config
-          hostPath:
-            path: /etc/nvme
             type: DirectoryOrCreate

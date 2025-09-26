@@ -1,3 +1,21 @@
+﻿# =======================================================================
+# Copyright 2021 The LiteIO Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =======================================================================
+# Modifications by The SLiteIO Authors on 2025:
+# - Modification : support nvme connect parameters configurable and fix too much mount points in some abnoraml conditions
+
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -26,7 +44,8 @@ spec:
             capabilities:
               add: ["CAP_MKNOD", "CAP_SYS_ADMIN", "SYS_ADMIN", "SYS_RAWIO"]
             allowPrivilegeEscalation: true
-          image: silentred/node-disk-controller:77a64346-20231205134756
+          image: snleo123/node-disk-controller:v1.0
+          #image: crpi-g408pn42wcgx8bkz.cn-hangzhou.personal.cr.aliyuncs.com/sliteio/node-disk-controller:v1.0  #国内镜像源
           command:
           - /node-disk-controller
           args:
@@ -36,6 +55,8 @@ spec:
             - "--nodeID=$(NODE_ID)"
             - "--endpoint=$(CSI_ENDPOINT)"
             - "--maxVolume=20"
+            - '--nvmeReconnectDelay=5'
+            - '--nvmeCtrlLossTMO=15'
             - "--logtostderr"
           resources:
             limits:
@@ -60,9 +81,9 @@ spec:
               mountPath: /plugin
             - name: device-dir
               mountPath: /dev
-            - name: global-mount-dir
-              mountPath: /var/lib/kubelet/plugins/
-              mountPropagation: "Bidirectional"
+            #- name: global-mount-dir
+            #  mountPath: /var/lib/kubelet/plugins/
+            #  mountPropagation: "Bidirectional"
             # - name: sigma-pods-mount-dir
             #   mountPath: /var/lib/kubelet/pods/
             #   mountPropagation: "Bidirectional"
@@ -75,6 +96,7 @@ spec:
               mountPath: /lib/modules
         - name: csi-node-driver-registrar
           image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v1.2.0
+          #image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/registry.k8s.io/sig-storage/csi-node-driver-registrar:v1.2.0   # 国内镜像源
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -108,6 +130,7 @@ spec:
               mountPath: /registration
         - name: liveness-probe
           image: quay.io/k8scsi/livenessprobe:v2.0.0
+          #image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/registry.k8s.io/sig-storage/livenessprobe:v2.3.0   # 国内镜像源
           args:
           - "--csi-address=/plugin/csi.sock"
           resources:
@@ -137,10 +160,10 @@ spec:
           hostPath:
             path: /var/lib/kubelet/
             type: Directory
-        - name: global-mount-dir
-          hostPath:
-            path: /var/lib/kubelet/plugins/
-            type: Directory
+        #- name: global-mount-dir
+        #  hostPath:
+        #    path: /var/lib/kubelet/plugins/
+        #    type: Directory
         # - name: sigma-pods-mount-dir
         #   hostPath:
         #     path: /var/lib/kubelet/pods/

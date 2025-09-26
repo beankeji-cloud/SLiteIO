@@ -1,3 +1,21 @@
+﻿# =======================================================================
+# Copyright 2021 The LiteIO Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =======================================================================
+# Modifications by The SLiteIO Authors on 2025:
+# - Modification : support csi storage capacity tracking
+
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -41,6 +59,7 @@ rules:
   - "storage.k8s.io"
   resources:
   - storageclasses
+  - csistoragecapacities
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
@@ -70,12 +89,12 @@ rules:
     verbs: ["get", "list", "watch", "update", "create", "delete", "patch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
-    verbs: ["get", "list", "watch", "update"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims/status"]
     verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["storage.k8s.io"]
-    resources: ["storageclasses"]
+    resources: ["storageclasses", "csistoragecapacities"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["csinodes", "csidrivers"]
@@ -91,7 +110,7 @@ rules:
     verbs: ["get", "watch", "list", "delete", "update", "create"]
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: [""]
     resources: ["nodes/status"]
     verbs: ["get", "list", "watch", "patch", "update"]
@@ -109,7 +128,7 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["snapshot.storage.k8s.io"]
     resources: ["volumesnapshotcontents"]
-    verbs: ["create", "get", "list", "watch", "update", "delete"]
+    verbs: ["create", "get", "list", "watch", "update", "delete", "patch"]
   - apiGroups: ["snapshot.storage.k8s.io"]
     resources: ["volumesnapshotcontents/status"]
     verbs: ["update"]

@@ -1,3 +1,21 @@
+﻿# =======================================================================
+# Copyright 2021 The LiteIO Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =======================================================================
+# Modifications by The SLiteIO Authors on 2025:
+# - Modification : support csi storage capacity tracking and volume expansion
+
 kind: Deployment
 apiVersion: apps/v1
 metadata:
@@ -18,7 +36,8 @@ spec:
       serviceAccount: obnvmf-admin
       containers:
       - name: csi-antstor
-        image: silentred/node-disk-controller:77a64346-20231205134756
+        image: snleo123/node-disk-controller:v1.0
+        #image: crpi-g408pn42wcgx8bkz.cn-hangzhou.personal.cr.aliyuncs.com/sliteio/node-disk-controller:v1.0  #国内镜像源
         command:
         - /node-disk-controller
         args:
@@ -49,16 +68,30 @@ spec:
         - name: socket-dir
           mountPath: /csi
       - name: csi-provisioner
-        image: "registry.k8s.io/sig-storage/csi-provisioner:v2.1.1"
+        image: registry.k8s.io/sig-storage/csi-provisioner:v4.0.1
+        #image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/registry.k8s.io/sig-storage/csi-provisioner:v4.0.1  #国内镜像源
         args:
             #- "--provisioner=antstor.csi.alipay.com"
             - "--csi-address=$(ADDRESS)"
             - "--extra-create-metadata=true"
             - "--v=5"
             - "--feature-gates=Topology=true"
+            - '--enable-capacity=true'
+            - '--capacity-poll-interval=30s'
+            - '--kube-api-capacity-qps=10'
         env:
         - name: ADDRESS
           value: /csi/csi.sock
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
         resources:
           limits:
             cpu: "1"
@@ -72,6 +105,7 @@ spec:
           mountPath: /csi
       - name: csi-attacher
         image: quay.io/k8scsi/csi-attacher:v2.0.0
+        #image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/k8s.gcr.io/sig-storage/csi-attacher:v3.0.2  #国内镜像源
         args:
         - "--csi-address=$(ADDRESS)"
         - "--v=5"
@@ -93,27 +127,29 @@ spec:
         volumeMounts:
         - name: socket-dir
           mountPath: /csi
-      # - name: csi-resizer
-      #   image: reg.docker.alibaba-inc.com/kubecsi/csi-resizer:v1.3.0
-      #   args:
-      #     - "--v=5"
-      #     - "--csi-address=$(CSI_ENDPOINT)"
-      #     #- "--leader-election"
-      #   env:
-      #     - name: CSI_ENDPOINT
-      #       value: /socketDir/csi.sock
-      #   volumeMounts:
-      #     - name: socket-dir
-      #       mountPath: /socketDir/
-      #   resources:
-      #     limits:
-      #       cpu: "2"
-      #       memory: "4Gi"
-      #     requests:
-      #       cpu: "1"
-      #       memory: "2Gi"
+      - name: csi-resizer
+        image: registry.k8s.io/sig-storage/csi-resizer:v1.3.0
+        #image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/registry.k8s.io/sig-storage/csi-resizer:v1.3.0  #国内镜像源
+        args:
+          - "--v=5"
+          - "--csi-address=$(CSI_ENDPOINT)"
+          #- "--leader-election"
+        env:
+          - name: CSI_ENDPOINT
+            value: /csi/csi.sock
+        volumeMounts:
+          - name: socket-dir
+            mountPath: /csi
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+          requests:
+            cpu: "1"
+            memory: "2Gi"
       - name: liveness-probe
         image: quay.io/k8scsi/livenessprobe:v2.0.0
+        #image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/registry.k8s.io/sig-storage/livenessprobe:v2.3.0  #国内镜像源
         args:
         - "--csi-address=/csi/csi.sock"
         resources:
