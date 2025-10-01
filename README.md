@@ -1,4 +1,4 @@
-<p align="center"><img src=doc/image/logo.png width="300" /></p>
+<p align="center"><img src=doc/image/logo.png alt="logo.png" width="300" /></p>
 <p align="center"><b>云原生存储解决方案</b></p>
 <p align="center">
   [<a href="README.md">中文</a>] | [<a href="README-en.md">English</a>] 
